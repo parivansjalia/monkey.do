@@ -17,7 +17,7 @@ const Index = () => {
     deleteChat,
   } = useChat();
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUploadClick = () => {
