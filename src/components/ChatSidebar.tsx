@@ -72,7 +72,7 @@ export function ChatSidebar({
       <div className="p-4 border-t border-sidebar-border flex-shrink-0">
         <div className="flex items-center gap-2 text-sm text-sidebar-muted">
           <span className="text-2xl">🙈</span>
-          <span className="font-display font-bold">SeeNoEvil</span>
+          <span className="font-display font-bold">MonkeyDo</span>
         </div>
       </div>
     </aside>

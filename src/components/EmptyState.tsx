@@ -12,7 +12,7 @@ export function EmptyState({ onUploadClick }: EmptyStateProps) {
           🙈
         </div>
         <h1 className="text-3xl font-display font-black mb-3 text-foreground">
-          See No Evil
+          MonkeyDo
         </h1>
         <p className="text-muted-foreground mb-8 font-body leading-relaxed">
           Upload an image and start chatting! I promise I'll only peek through
