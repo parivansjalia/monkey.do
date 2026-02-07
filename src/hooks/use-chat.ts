@@ -1,4 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import {
+  sendChatMessage,
+  getPostVideoResponse,
+  runFullPipeline,
+  type ChatMessage as ApiChatMessage,
+} from "@/lib/api";
 
 export interface ChatMessage {
   id: string;
@@ -7,6 +13,7 @@ export interface ChatMessage {
   image?: string;
   video?: string;
   timestamp: Date;
+  suggestions?: string[];
 }
 
 export interface Chat {
@@ -18,30 +25,18 @@ export interface Chat {
 
 const generateId = () => Math.random().toString(36).substring(2, 10);
 
-const monkeyResponses = [
-  "🙈 Ooh, interesting image! Let me take a peek through my fingers...",
-  "🙈 *peeks through fingers* That's quite something!",
-  "🙈 I'm too shy to look directly, but from what I can see...",
-  "🙈 Oh my! Let me cover my eyes and think about this one...",
-  "🙈 *slowly spreads fingers apart* Wow, tell me more!",
-  "🙈 See no evil, but I sense something good here!",
-];
-
-const sampleVideos = [
-  "https://www.w3schools.com/html/mov_bbb.mp4",
-  "https://www.w3schools.com/html/movie.mp4",
-];
-
-const getRandomResponse = () =>
-  monkeyResponses[Math.floor(Math.random() * monkeyResponses.length)];
-
 export function useChat() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const activeChat = chats.find((c) => c.id === activeChatId) || null;
 
-  const createChat = () => {
+  // Convert chat messages to API format
+  const toApiHistory = (messages: ChatMessage[]): ApiChatMessage[] =>
+    messages.map((m) => ({ role: m.role, content: m.content }));
+
+  const createChat = useCallback(() => {
     const newChat: Chat = {
       id: generateId(),
       title: "New Chat 🙈",
@@ -51,63 +46,180 @@ export function useChat() {
     setChats((prev) => [newChat, ...prev]);
     setActiveChatId(newChat.id);
     return newChat.id;
-  };
+  }, []);
 
-  const sendMessage = (content: string, image?: string) => {
-    let chatId = activeChatId;
-    if (!chatId) {
-      chatId = createChat();
-    }
+  const sendMessage = useCallback(
+    async (content: string, image?: string) => {
+      let chatId = activeChatId;
+      if (!chatId) {
+        chatId = createChat();
+      }
 
-    const userMessage: ChatMessage = {
-      id: generateId(),
-      role: "user",
-      content,
-      image,
-      timestamp: new Date(),
-    };
+      const userMessage: ChatMessage = {
+        id: generateId(),
+        role: "user",
+        content,
+        image,
+        timestamp: new Date(),
+      };
 
-    const includeVideo = Math.random() > 0.5;
-    const aiMessage: ChatMessage = {
-      id: generateId(),
-      role: "ai",
-      content: getRandomResponse(),
-      video: includeVideo
-        ? sampleVideos[Math.floor(Math.random() * sampleVideos.length)]
-        : undefined,
-      timestamp: new Date(),
-    };
+      // Add user message immediately
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (chat.id !== chatId) return chat;
+          const updated = {
+            ...chat,
+            messages: [...chat.messages, userMessage],
+          };
+          if (chat.messages.length === 0) {
+            updated.title = content.slice(0, 30) || "Image Chat 🙈";
+          }
+          return updated;
+        })
+      );
 
-    setChats((prev) =>
-      prev.map((chat) => {
-        if (chat.id !== chatId) return chat;
-        const updated = {
-          ...chat,
-          messages: [...chat.messages, userMessage, aiMessage],
+      setIsLoading(true);
+
+      // Add "generating" message
+      const generatingMsgId = generateId();
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (chat.id !== chatId) return chat;
+          return {
+            ...chat,
+            messages: [
+              ...chat.messages,
+              {
+                id: generatingMsgId,
+                role: "ai" as const,
+                content: "🔍 Searching and generating your video...",
+                timestamp: new Date(),
+              },
+            ],
+          };
+        })
+      );
+
+      try {
+        // Run full pipeline: search → summarize → generate video
+        const response = await runFullPipeline(content, image);
+
+        // Replace generating message with actual response + video
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id !== chatId) return chat;
+            return {
+              ...chat,
+              messages: chat.messages.map((msg) =>
+                msg.id === generatingMsgId
+                  ? {
+                      ...msg,
+                      content: `✅ Here's your video!\n\n**Prompt:** ${response.videoPrompt}`,
+                      video: response.videoUrl,
+                    }
+                  : msg
+              ),
+            };
+          })
+        );
+      } catch (error) {
+        console.error("Failed to send message:", error);
+        // Replace generating message with error
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id !== chatId) return chat;
+            return {
+              ...chat,
+              messages: chat.messages.map((msg) =>
+                msg.id === generatingMsgId
+                  ? {
+                      ...msg,
+                      content: "🙈 Oops! I got shy and couldn't respond. Try again?",
+                    }
+                  : msg
+              ),
+            };
+          })
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [activeChatId, chats, createChat]
+  );
+
+  // Handle video completion - call after Fal generates video
+  const handleVideoComplete = useCallback(
+    async (videoUrl: string, originalPrompt: string) => {
+      if (!activeChatId) return;
+
+      setIsLoading(true);
+
+      try {
+        const currentChat = chats.find((c) => c.id === activeChatId);
+        const history = currentChat ? toApiHistory(currentChat.messages) : [];
+
+        const response = await getPostVideoResponse(
+          videoUrl,
+          originalPrompt,
+          history
+        );
+
+        const aiMessage: ChatMessage = {
+          id: generateId(),
+          role: "ai",
+          content: response.response,
+          video: videoUrl,
+          suggestions: response.suggestions,
+          timestamp: new Date(),
         };
-        if (chat.messages.length === 0) {
-          updated.title =
-            content.slice(0, 30) || "Image Chat 🙈";
-        }
-        return updated;
-      })
-    );
-  };
 
-  const deleteChat = (id: string) => {
-    setChats((prev) => prev.filter((c) => c.id !== id));
-    if (activeChatId === id) {
-      setActiveChatId(null);
-    }
-  };
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id !== activeChatId) return chat;
+            return {
+              ...chat,
+              messages: [...chat.messages, aiMessage],
+            };
+          })
+        );
+      } catch (error) {
+        console.error("Failed to handle video completion:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [activeChatId, chats]
+  );
+
+  // Use a suggestion as the next message
+  const useSuggestion = useCallback(
+    (suggestion: string) => {
+      sendMessage(suggestion);
+    },
+    [sendMessage]
+  );
+
+  const deleteChat = useCallback(
+    (id: string) => {
+      setChats((prev) => prev.filter((c) => c.id !== id));
+      if (activeChatId === id) {
+        setActiveChatId(null);
+      }
+    },
+    [activeChatId]
+  );
 
   return {
     chats,
     activeChat,
     activeChatId,
+    isLoading,
     setActiveChatId,
     createChat,
     sendMessage,
+    handleVideoComplete,
+    useSuggestion,
     deleteChat,
   };
 }
