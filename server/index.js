@@ -348,7 +348,7 @@ app.post("/api/video", async (req, res) => {
     
     if (imageUrl) {
       // Image-to-video generation
-      result = await fal.subscribe("fal-ai/kling-video/v1.5/pro/image-to-video", {
+      result = await fal.subscribe("fal-ai/kling-video/v1/standard/image-to-video", {
         input: {
           prompt,
           image_url: imageUrl,
@@ -463,7 +463,7 @@ app.post("/api/full-pipeline", async (req, res) => {
     let videoResult;
     
     if (hasImage) {
-      videoResult = await fal.subscribe("fal-ai/kling-video/v1.5/pro/image-to-video", {
+      videoResult = await fal.subscribe("fal-ai/kling-video/v1/standard/image-to-video", {
         input: {
           prompt: videoPrompt,
           image_url: image,
