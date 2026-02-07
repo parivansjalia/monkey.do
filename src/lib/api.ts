@@ -16,6 +16,15 @@ export interface PostVideoResponse {
   videoUrl?: string;
 }
 
+export interface FullPipelineResponse {
+  conversationId: string;
+  originalPrompt: string;
+  searchObjective: string;
+  videoPrompt: string;
+  videoUrl: string;
+  hasImage: boolean;
+}
+
 // Send initial message and get AI response
 export async function sendChatMessage(
   message: string,
@@ -80,6 +89,27 @@ export async function continueConversation(
 
   if (!res.ok) {
     throw new Error("Failed to continue conversation");
+  }
+
+  return res.json();
+}
+
+// Full pipeline: search → summarize → generate video
+export async function runFullPipeline(
+  prompt: string,
+  image?: string
+): Promise<FullPipelineResponse> {
+  const res = await fetch(`${API_URL}/api/full-pipeline`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt,
+      image,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to run pipeline");
   }
 
   return res.json();

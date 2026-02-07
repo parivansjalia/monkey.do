@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
 import Parallel from "parallel-web";
+import { fal } from "@fal-ai/client";
+import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -28,6 +30,17 @@ const parallel = new Parallel({
   apiKey: process.env.PARALLEL_API_KEY,
 });
 
+// Initialize Fal AI
+fal.config({
+  credentials: process.env.FAL_KEY,
+});
+
+// Initialize Supabase
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
 // Load prompts from template files
 const SYSTEM_PROMPT = readFileSync(
   join(__dirname, "prompts", "system.txt"),
@@ -49,8 +62,48 @@ const SUMMARIZE_SEARCH_PROMPT = readFileSync(
   "utf-8"
 );
 
-// Store conversations in memory (will be replaced with Supabase later)
-const conversations = new Map();
+// ============ Supabase Helpers ============
+
+// Save generated video to Supabase (using existing video_generations table)
+async function saveVideo(videoData) {
+  try {
+    const { data, error } = await supabase
+      .from("video_generations")
+      .insert({
+        image_path: videoData.imageUrl || "",
+        prompt: videoData.prompt,
+        model: "fal-ai/minimax-video/video-01",
+        video_url: videoData.videoUrl,
+        status: "completed",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log("✅ Saved to Supabase:", data.id);
+    return data;
+  } catch (error) {
+    console.error("Failed to save video:", error);
+    return null;
+  }
+}
+
+// Get video generations from Supabase
+async function getVideos(limit = 10) {
+  try {
+    const { data, error } = await supabase
+      .from("video_generations")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error("Failed to get videos:", error);
+    return [];
+  }
+}
 
 // Helper to build message history for OpenAI
 function buildMessages(conversationHistory, systemPrompt = SYSTEM_PROMPT) {
@@ -273,6 +326,194 @@ app.post("/api/generate", async (req, res) => {
   } catch (error) {
     console.error("Generate pipeline error:", error);
     res.status(500).json({ error: "Failed to process request" });
+  }
+});
+
+// POST /api/video - Generate video with Fal AI
+app.post("/api/video", async (req, res) => {
+  try {
+    const { prompt, imageUrl, conversationId } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: "Prompt required" });
+    }
+
+    console.log("🎬 Generating video with Fal AI...");
+    console.log("📝 Prompt:", prompt);
+    if (imageUrl) console.log("🖼️ With image reference");
+
+    // Use Fal AI to generate video
+    // Using kling-video for image-to-video or minimax for text-to-video
+    let result;
+    
+    if (imageUrl) {
+      // Image-to-video generation
+      result = await fal.subscribe("fal-ai/kling-video/v1.5/pro/image-to-video", {
+        input: {
+          prompt,
+          image_url: imageUrl,
+          duration: "5",
+          aspect_ratio: "16:9",
+        },
+        logs: true,
+        onQueueUpdate: (update) => {
+          if (update.status === "IN_PROGRESS") {
+            console.log("⏳ Video generation in progress...");
+          }
+        },
+      });
+    } else {
+      // Text-to-video generation
+      result = await fal.subscribe("fal-ai/minimax-video/video-01", {
+        input: {
+          prompt,
+          prompt_optimizer: true,
+        },
+        logs: true,
+        onQueueUpdate: (update) => {
+          if (update.status === "IN_PROGRESS") {
+            console.log("⏳ Video generation in progress...");
+          }
+        },
+      });
+    }
+
+    const videoUrl = result.data?.video?.url || result.video?.url;
+    console.log("✅ Video generated:", videoUrl);
+
+    // Save to Supabase
+    await saveVideo({
+      prompt,
+      videoUrl,
+      imageUrl,
+    });
+
+    res.json({
+      videoUrl,
+      prompt,
+    });
+  } catch (error) {
+    console.error("Video generation error:", error);
+    res.status(500).json({ error: "Failed to generate video" });
+  }
+});
+
+// POST /api/full-pipeline - Complete flow: prompt → search → summarize → video
+app.post("/api/full-pipeline", async (req, res) => {
+  try {
+    const { prompt, image, conversationId } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: "Prompt required" });
+    }
+
+    const hasImage = !!image;
+    const convId = conversationId || crypto.randomUUID();
+
+    // Step 1: Generate search objective
+    console.log("🔍 Step 1: Generating search objective...");
+    const objectiveCompletion = await openai.chat.completions.create({
+      model: "gpt-4.1",
+      messages: [
+        { role: "system", content: SEARCH_OBJECTIVE_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 100,
+      temperature: 0.3,
+    });
+    const searchObjective = objectiveCompletion.choices[0]?.message?.content?.trim();
+    console.log("📝 Search objective:", searchObjective);
+
+    // Step 2: Search with Parallel AI
+    console.log("🌐 Step 2: Searching with Parallel AI...");
+    const searchResponse = await parallel.beta.search({
+      mode: "one-shot",
+      search_queries: null,
+      max_results: 10,
+      objective: searchObjective,
+    });
+    console.log("✅ Search complete");
+
+    // Step 3: Summarize for video
+    console.log("📋 Step 3: Summarizing for video generation...");
+    const searchContent = searchResponse.results
+      ?.map((r) => r.content || r.snippet || r.title)
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 4000);
+
+    const imageContext = hasImage 
+      ? "\n\nIMPORTANT: The user uploaded an image. Use the uploaded image as the visual reference and background."
+      : "";
+
+    const summaryCompletion = await openai.chat.completions.create({
+      model: "gpt-4.1",
+      messages: [
+        { role: "system", content: SUMMARIZE_SEARCH_PROMPT },
+        { role: "user", content: `Original request: "${prompt}"${imageContext}\n\nSearch results:\n${searchContent}` },
+      ],
+      max_tokens: 300,
+      temperature: 0.5,
+    });
+    const videoPrompt = summaryCompletion.choices[0]?.message?.content?.trim();
+    console.log("🎬 Video prompt:", videoPrompt);
+
+    // Step 4: Generate video with Fal AI
+    console.log("🎥 Step 4: Generating video with Fal AI...");
+    let videoResult;
+    
+    if (hasImage) {
+      videoResult = await fal.subscribe("fal-ai/kling-video/v1.5/pro/image-to-video", {
+        input: {
+          prompt: videoPrompt,
+          image_url: image,
+          duration: "5",
+          aspect_ratio: "16:9",
+        },
+        logs: true,
+        onQueueUpdate: (update) => {
+          if (update.status === "IN_PROGRESS") {
+            console.log("⏳ Video generation in progress...");
+          }
+        },
+      });
+    } else {
+      // Text-to-video generation
+      videoResult = await fal.subscribe("fal-ai/minimax-video/video-01", {
+        input: {
+          prompt: videoPrompt,
+          prompt_optimizer: true,
+        },
+        logs: true,
+        onQueueUpdate: (update) => {
+          if (update.status === "IN_PROGRESS") {
+            console.log("⏳ Video generation in progress...");
+          }
+        },
+      });
+    }
+
+    const videoUrl = videoResult.data?.video?.url || videoResult.video?.url;
+    console.log("✅ Video generated:", videoUrl);
+
+    // Save to Supabase
+    await saveVideo({
+      prompt: videoPrompt,
+      videoUrl,
+      imageUrl: image,
+    });
+
+    res.json({
+      conversationId: convId,
+      originalPrompt: prompt,
+      searchObjective,
+      videoPrompt,
+      videoUrl,
+      hasImage,
+    });
+  } catch (error) {
+    console.error("Full pipeline error:", error);
+    res.status(500).json({ error: "Failed to complete pipeline" });
   }
 });
 

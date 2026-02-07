@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import {
   sendChatMessage,
   getPostVideoResponse,
-  continueConversation,
+  runFullPipeline,
   type ChatMessage as ApiChatMessage,
 } from "@/lib/api";
 
@@ -80,46 +80,64 @@ export function useChat() {
 
       setIsLoading(true);
 
+      // Add "generating" message
+      const generatingMsgId = generateId();
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (chat.id !== chatId) return chat;
+          return {
+            ...chat,
+            messages: [
+              ...chat.messages,
+              {
+                id: generatingMsgId,
+                role: "ai" as const,
+                content: "🔍 Searching and generating your video...",
+                timestamp: new Date(),
+              },
+            ],
+          };
+        })
+      );
+
       try {
-        // Get current conversation history
-        const currentChat = chats.find((c) => c.id === chatId);
-        const history = currentChat ? toApiHistory(currentChat.messages) : [];
+        // Run full pipeline: search → summarize → generate video
+        const response = await runFullPipeline(content, image);
 
-        // Call API
-        const response = await sendChatMessage(content, image, history, chatId);
-
-        const aiMessage: ChatMessage = {
-          id: generateId(),
-          role: "ai",
-          content: response.response,
-          timestamp: new Date(),
-        };
-
-        // Add AI response
+        // Replace generating message with actual response + video
         setChats((prev) =>
           prev.map((chat) => {
             if (chat.id !== chatId) return chat;
             return {
               ...chat,
-              messages: [...chat.messages, aiMessage],
+              messages: chat.messages.map((msg) =>
+                msg.id === generatingMsgId
+                  ? {
+                      ...msg,
+                      content: `✅ Here's your video!\n\n**Prompt:** ${response.videoPrompt}`,
+                      video: response.videoUrl,
+                    }
+                  : msg
+              ),
             };
           })
         );
       } catch (error) {
         console.error("Failed to send message:", error);
-        // Add error message
-        const errorMessage: ChatMessage = {
-          id: generateId(),
-          role: "ai",
-          content: "🙈 Oops! I got shy and couldn't respond. Try again?",
-          timestamp: new Date(),
-        };
+        // Replace generating message with error
         setChats((prev) =>
           prev.map((chat) => {
             if (chat.id !== chatId) return chat;
             return {
               ...chat,
-              messages: [...chat.messages, errorMessage],
+              messages: chat.messages.map((msg) =>
+                msg.id === generatingMsgId
+                  ? {
+                      ...msg,
+                      content: "🙈 Oops! I got shy and couldn't respond. Try again?",
+                    }
+                  : msg
+              ),
             };
           })
         );
