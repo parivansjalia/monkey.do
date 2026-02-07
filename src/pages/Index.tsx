@@ -62,7 +62,7 @@ const Index = () => {
           <div className="flex items-center gap-2">
             <span className="text-xl">🙈</span>
             <h2 className="font-display font-bold text-foreground">
-              {activeChat?.title || "SeeNoEvil"}
+              {activeChat?.title || "MonkeyDo"}
             </h2>
           </div>
         </header>
