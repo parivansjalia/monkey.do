@@ -5,6 +5,7 @@ export interface ChatMessage {
   role: "user" | "ai";
   content: string;
   image?: string;
+  video?: string;
   timestamp: Date;
 }
 
@@ -24,6 +25,11 @@ const monkeyResponses = [
   "🙈 Oh my! Let me cover my eyes and think about this one...",
   "🙈 *slowly spreads fingers apart* Wow, tell me more!",
   "🙈 See no evil, but I sense something good here!",
+];
+
+const sampleVideos = [
+  "https://www.w3schools.com/html/mov_bbb.mp4",
+  "https://www.w3schools.com/html/movie.mp4",
 ];
 
 const getRandomResponse = () =>
@@ -61,10 +67,14 @@ export function useChat() {
       timestamp: new Date(),
     };
 
+    const includeVideo = Math.random() > 0.5;
     const aiMessage: ChatMessage = {
       id: generateId(),
       role: "ai",
       content: getRandomResponse(),
+      video: includeVideo
+        ? sampleVideos[Math.floor(Math.random() * sampleVideos.length)]
+        : undefined,
       timestamp: new Date(),
     };
 

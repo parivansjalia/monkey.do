@@ -1,5 +1,7 @@
 import type { ChatMessage } from "@/hooks/use-chat";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Play } from "lucide-react";
+import { VideoLightbox } from "./VideoLightbox";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -7,6 +9,7 @@ interface MessageListProps {
 
 export function MessageList({ messages }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [expandedVideo, setExpandedVideo] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -42,6 +45,24 @@ export function MessageList({ messages }: MessageListProps) {
                   className="max-h-60 rounded-lg mb-2 object-cover"
                 />
               )}
+              {msg.video && (
+                <div
+                  className="relative max-h-60 rounded-lg mb-2 overflow-hidden cursor-pointer group"
+                  onClick={() => setExpandedVideo(msg.video!)}
+                >
+                  <video
+                    src={msg.video}
+                    className="max-h-60 rounded-lg object-cover"
+                    muted
+                    preload="metadata"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
+                    <div className="w-12 h-12 rounded-full bg-background/80 flex items-center justify-center">
+                      <Play className="w-6 h-6 text-foreground ml-0.5" />
+                    </div>
+                  </div>
+                </div>
+              )}
               {msg.content && (
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">
                   {msg.content}
@@ -58,6 +79,13 @@ export function MessageList({ messages }: MessageListProps) {
         ))}
         <div ref={bottomRef} />
       </div>
+
+      {expandedVideo && (
+        <VideoLightbox
+          src={expandedVideo}
+          onClose={() => setExpandedVideo(null)}
+        />
+      )}
     </div>
   );
 }
