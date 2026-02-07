@@ -3,9 +3,10 @@ import { Camera, ImagePlus, Send, X } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (message: string, image?: string) => void;
+  disabled?: boolean;
 }
 
-export function ChatInput({ onSend }: ChatInputProps) {
+export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -20,6 +21,7 @@ export function ChatInput({ onSend }: ChatInputProps) {
   }, []);
 
   const handleSend = () => {
+    if (disabled) return;
     if (!message.trim() && !preview) return;
     onSend(message.trim(), preview || undefined);
     setMessage("");
@@ -101,7 +103,7 @@ export function ChatInput({ onSend }: ChatInputProps) {
 
         <button
           onClick={handleSend}
-          disabled={!message.trim() && !preview}
+          disabled={disabled || (!message.trim() && !preview)}
           className="flex-shrink-0 p-2.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40"
           title="Send"
         >

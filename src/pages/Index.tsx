@@ -11,9 +11,11 @@ const Index = () => {
     chats,
     activeChat,
     activeChatId,
+    isLoading,
     setActiveChatId,
     createChat,
     sendMessage,
+    useSuggestion,
     deleteChat,
   } = useChat();
 
@@ -70,8 +72,12 @@ const Index = () => {
         {/* Chat area */}
         {activeChat && activeChat.messages.length > 0 ? (
           <>
-            <MessageList messages={activeChat.messages} />
-            <ChatInput onSend={sendMessage} />
+            <MessageList
+              messages={activeChat.messages}
+              isLoading={isLoading}
+              onSuggestionClick={useSuggestion}
+            />
+            <ChatInput onSend={sendMessage} disabled={isLoading} />
           </>
         ) : (
           <>
@@ -83,7 +89,7 @@ const Index = () => {
               className="hidden"
               onChange={handleFileFromEmpty}
             />
-            <ChatInput onSend={sendMessage} />
+            <ChatInput onSend={sendMessage} disabled={isLoading} />
           </>
         )}
       </div>
