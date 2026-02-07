@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from "react";
-import { ImagePlus, Send, X } from "lucide-react";
+import { Camera, ImagePlus, Send, X } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (message: string, image?: string) => void;
@@ -9,6 +9,7 @@ export function ChatInput({ onSend }: ChatInputProps) {
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -24,6 +25,7 @@ export function ChatInput({ onSend }: ChatInputProps) {
     setMessage("");
     setPreview(null);
     if (fileRef.current) fileRef.current.value = "";
+    if (cameraRef.current) cameraRef.current.value = "";
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -58,10 +60,27 @@ export function ChatInput({ onSend }: ChatInputProps) {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           className="hidden"
           onChange={handleFile}
         />
+
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleFile}
+        />
+
+        <button
+          onClick={() => cameraRef.current?.click()}
+          className="flex-shrink-0 p-2.5 rounded-lg bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          title="Take photo"
+        >
+          <Camera className="w-5 h-5" />
+        </button>
 
         <button
           onClick={() => fileRef.current?.click()}
